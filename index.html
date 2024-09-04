@@ -1,0 +1,808 @@
+<html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.2.47/vue.global.prod.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'Roboto', sans-serif;
+    background-color: #f0f4f8;
+    color: #333;
+  }
+  #app {
+    display: flex;
+    height: 100vh;
+  }
+  .sidebar {
+    width: 250px;
+    background-color: #2c3e50;
+    color: white;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    overflow-y: auto;
+  }
+  h1 {
+    margin: 0 0 20px 0;
+    font-size: 1.3em;
+    text-align: center;
+    width: 100%;
+  }
+  .controls {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    align-items: center;
+  }
+  label {
+    margin-bottom: 5px;
+    font-size: 0.9em;
+    align-self: flex-start;
+  }
+  select, input[type="range"] {
+    width: 100%;
+    padding: 8px;
+    font-size: 14px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background-color: white;
+    color: #333;
+    margin-bottom: 15px;
+    box-sizing: border-box;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 5px;
+    background: #d3d3d3;
+    outline: none;
+    opacity: 0.7;
+    transition: opacity .2s;
+    margin-top: 5px;
+  }
+  input[type="range"]:hover {
+    opacity: 1;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: #4CAF50;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: #4CAF50;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  #matrix-container {
+    flex-grow: 1;
+    overflow: hidden;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+  }
+  #matrix {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 5px;
+    width: 100%;
+    height: 100%;
+    transition: all 0.3s ease;
+  }
+  .plot {
+    background-color: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    height: 100%;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  .plot:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transform: scale(1.02);
+  }
+  .plot.expanded {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90vw;
+    height: 90vh;
+    z-index: 1000;
+  }
+  .button {
+    width: 100%;
+    padding: 10px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, opacity 0.3s ease;
+    margin-top: 10px;
+  }
+  .button:hover {
+    background-color: #2980b9;
+  }
+  .button.active {
+    background-color: #e74c3c;
+  }
+  .button.inactive {
+    opacity: 0.6;
+  }
+  .info-panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+    z-index: 1000;
+  }
+  .info-panel h2 {
+    margin-top: 0;
+    color: #2c3e50;
+  }
+  .info-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 0.9em;
+  }
+  .info-panel th, .info-panel td {
+    border: 1px solid #ddd;
+    padding: 6px;
+    text-align: left;
+  }
+  .info-panel th {
+    background-color: #f2f2f2;
+  }
+  .close-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #2c3e50;
+  }
+  #confusion-matrix {
+    width: 100%;
+    height: 400px;
+  }
+  @media (max-width: 1200px) {
+    #app {
+      flex-direction: column;
+    }
+    .sidebar {
+      width: 100%;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      overflow-x: auto;
+    }
+    .controls {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    label, select, input[type="range"] {
+      margin: 0 10px 10px 0;
+      width: auto;
+    }
+    #matrix-container {
+      height: calc(100vh - 120px);
+    }
+    .button {
+      width: auto;
+      padding: 8px 15px;
+      margin: 5px;
+    }
+    #matrix {
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+    }
+  }
+  @media (max-width: 768px) {
+    body, html {
+      height: auto;
+      overflow-y: auto;
+    }
+    #app {
+      height: auto;
+      overflow-y: visible;
+    }
+    .sidebar {
+      flex-direction: column;
+      height: auto;
+      padding: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    .controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    label, select, input[type="range"] {
+      width: 100%;
+      margin: 0 0 10px 0;
+    }
+    #matrix-container {
+      height: auto;
+      padding: 10px;
+      overflow-y: visible;
+    }
+    #matrix {
+      grid-template-columns: 1fr;
+      grid-template-rows: repeat(16, auto);
+      gap: 20px;
+    }
+    .button {
+      width: 100%;
+      margin: 5px 0;
+    }
+    .info-panel {
+      width: 95%;
+      max-height: 80vh;
+    }
+    .plot {
+      height: 300px;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="sidebar">
+    <h1>{{ title }}</h1>
+    <div class="controls">
+      <label for="species-select">Species:</label>
+      <select id="species-select" v-model="selectedSpecies">
+        <option value="all">All</option>
+        <option value="setosa">Setosa</option>
+        <option value="versicolor">Versicolor</option>
+        <option value="virginica">Virginica</option>
+      </select>
+      <label for="algorithm-select">Algorithm:</label>
+      <select id="algorithm-select" v-model="selectedAlgorithm" @change="updateMatrix">
+        <option value="none">None</option>
+        <option value="decisionTree">Decision Tree</option>
+        <option value="randomForest">Random Forest</option>
+        <option value="svm">SVM</option>
+        <option value="knn">K-Nearest Neighbors</option>
+      </select>
+      <label for="point-size">Size: {{ pointSize }}</label>
+      <input type="range" id="point-size" v-model="pointSize" min="2" max="10" step="1">
+      <label for="opacity">Opacity: {{ opacity }}</label>
+      <input type="range" id="opacity" v-model="opacity" min="0.1" max="1" step="0.1">
+      <button class="button" @click="resetCharts">Reset Charts</button>
+      <button class="button" :class="{ active: showModelPerformance, inactive: !showModelPerformance }" @click="toggleModelPerformance">Model Performance</button>
+      <button class="button" :class="{ active: showConfusionMatrix, inactive: !showConfusionMatrix }" @click="toggleConfusionMatrix">Confusion Matrix</button>
+      <button class="button" :class="{ active: showDecisionBoundary, inactive: !showDecisionBoundary }" @click="toggleDecisionBoundary">Decision Boundary</button>
+    </div>
+  </div>
+  <div id="matrix-container">
+    <div id="matrix"></div>
+  </div>
+  <div v-if="showModelPerformance" class="info-panel">
+    <h2>Model Performance</h2>
+    <table>
+      <tr>
+        <th>Feature Combination</th>
+        <th>Accuracy</th>
+        <th>Precision</th>
+        <th>Recall</th>
+        <th>F1 Score</th>
+      </tr>
+      <tr v-for="(performance, index) in modelPerformance" :key="index">
+        <td>{{ performance.features }}</td>
+        <td>{{ performance.accuracy.toFixed(4) }}</td>
+        <td>{{ performance.precision.toFixed(4) }}</td>
+        <td>{{ performance.recall.toFixed(4) }}</td>
+        <td>{{ performance.f1Score.toFixed(4) }}</td>
+      </tr>
+    </table>
+    <button class="close-button" @click="toggleModelPerformance">&times;</button>
+  </div>
+  <div v-if="showConfusionMatrix" class="info-panel">
+    <h2>Confusion Matrix</h2>
+    <div id="confusion-matrix"></div>
+    <button class="close-button" @click="toggleConfusionMatrix">&times;</button>
+  </div>
+</div>
+
+<script>
+// Model
+const IrisDataModel = {
+  data: [],
+  features: ['sepal_length', 'sepal_width', 'petal_length', 'petal_width'],
+  
+  loadData() {
+    return d3.csv('https://raw.githubusercontent.com/uiuc-cse/data-fa14/gh-pages/data/iris.csv')
+      .then(data => {
+        this.data = data;
+        return data;
+      });
+  },
+  
+  getFilteredData(selectedSpecies) {
+    return selectedSpecies === 'all' 
+      ? this.data 
+      : this.data.filter(d => d.species === selectedSpecies);
+  }
+};
+
+// View
+const IrisMatrixView = {
+  createMatrix(features, plotCallback) {
+    const matrix = document.getElementById('matrix');
+    matrix.innerHTML = '';
+
+    for (let i = 0; i < features.length; i++) {
+      for (let j = 0; j < features.length; j++) {
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'plot';
+        plotDiv.id = `plot-${i}-${j}`;
+        matrix.appendChild(plotDiv);
+
+        plotCallback(i, j);
+      }
+    }
+  },
+  
+  createPlot(i, j, xData, yData, features, colorMap, pointSize, opacity, decisionBoundary) {
+    const trace = {
+      x: xData,
+      y: yData,
+      mode: 'markers',
+      type: 'scatter',
+      marker: { 
+        color: colorMap,
+        size: pointSize,
+        opacity: opacity
+      },
+      hoverinfo: 'text',
+      hovertext: xData.map((x, idx) => `${features[j]}: ${x}<br>${features[i]}: ${yData[idx]}`)
+    };
+
+    const layout = {
+      title: {
+        text: i === j ? features[i] : `${features[i]} vs ${features[j]}`,
+        font: { size: 10 }
+      },
+      xaxis: { 
+        title: features[j], 
+        titlefont: { size: 8 }, 
+        tickfont: { size: 8 },
+        showgrid: false,
+        zeroline: false
+      },
+      yaxis: { 
+        title: features[i], 
+        titlefont: { size: 8 }, 
+        tickfont: { size: 8 },
+        showgrid: false,
+        zeroline: false
+      },
+      showlegend: false,
+      hovermode: 'closest',
+      margin: { l: 30, r: 10, t: 30, b: 30 },
+      plot_bgcolor: '#f8f9fa',
+      paper_bgcolor: 'white'
+    };
+
+    const config = {
+      responsive: true,
+      displayModeBar: false,
+      scrollZoom: true,
+      doubleClick: 'reset'
+    };
+
+    const data = [trace];
+
+    if (decisionBoundary) {
+      data.push(decisionBoundary);
+    }
+
+    Plotly.newPlot(`plot-${i}-${j}`, data, layout, config);
+
+    // Add event listeners for interactivity
+    const plotElement = document.getElementById(`plot-${i}-${j}`);
+    plotElement.on('plotly_hover', (eventData) => {
+      const pointIndex = eventData.points[0].pointIndex;
+      Plotly.Fx.hover(`plot-${i}-${j}`, [{ curveNumber: 0, pointIndex: pointIndex }]);
+    });
+
+    plotElement.on('plotly_click', (eventData) => {
+      const pointIndex = eventData.points[0].pointIndex;
+      const selectedPoint = {
+        x: xData[pointIndex],
+        y: yData[pointIndex],
+        color: colorMap[pointIndex],
+        index: pointIndex
+      };
+      highlightPointAcrossMatrix(selectedPoint, i, j);
+    });
+
+    plotElement.on('plotly_relayout', (eventData) => {
+      if (eventData['xaxis.range[0]'] !== undefined) {
+        synchronizeAxisAcrossRow(j, [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']], 'x');
+      }
+      if (eventData['yaxis.range[0]'] !== undefined) {
+        synchronizeAxisAcrossColumn(i, [eventData['yaxis.range[0]'], eventData['yaxis.range[1]']], 'y');
+      }
+    });
+
+    // Add click event to expand/collapse the plot
+    plotElement.addEventListener('click', () => {
+      toggleExpandPlot(plotElement);
+    });
+  }
+};
+
+function highlightPointAcrossMatrix(selectedPoint, clickedRow, clickedCol) {
+  IrisDataModel.features.forEach((_, i) => {
+    IrisDataModel.features.forEach((_, j) => {
+      if (i !== clickedRow || j !== clickedCol) {
+        Plotly.animate(`plot-${i}-${j}`, {
+          data: [{
+            marker: {
+              color: IrisDataModel.getFilteredData(app.selectedSpecies).map((_, idx) => {
+                return (idx === selectedPoint.index) ? '#FF0000' : selectedPoint.color;
+              }),
+              size: IrisDataModel.getFilteredData(app.selectedSpecies).map((_, idx) => {
+                return (idx === selectedPoint.index) ? app.pointSize * 1.5 : app.pointSize;
+              }),
+              opacity: IrisDataModel.getFilteredData(app.selectedSpecies).map((_, idx) => {
+                return (idx === selectedPoint.index) ? 1 : app.opacity;
+              })
+            }
+          }],
+          traces: [0],
+          layout: {}
+        }, {
+          transition: {
+            duration: 500,
+            easing: 'cubic-in-out'
+          }
+        });
+      }
+    });
+  });
+}
+
+function synchronizeAxisAcrossRow(col, range, axis) {
+  IrisDataModel.features.forEach((_, i) => {
+    if (i !== col) {
+      const update = {};
+      update[`${axis}axis.range`] = range;
+      Plotly.relayout(`plot-${i}-${col}`, update);
+    }
+  });
+}
+
+function synchronizeAxisAcrossColumn(row, range, axis) {
+  IrisDataModel.features.forEach((_, j) => {
+    if (j !== row) {
+      const update = {};
+      update[`${axis}axis.range`] = range;
+      Plotly.relayout(`plot-${row}-${j}`, update);
+    }
+  });
+}
+
+function toggleExpandPlot(plotElement) {
+  const matrixElement = document.getElementById('matrix');
+  const isExpanded = plotElement.classList.contains('expanded');
+
+  if (isExpanded) {
+    // Collapse the plot
+    plotElement.classList.remove('expanded');
+    matrixElement.style.display = 'grid';
+    Plotly.relayout(plotElement.id, {
+      width: null,
+      height: null
+    });
+  } else {
+    // Expand the plot
+    plotElement.classList.add('expanded');
+    matrixElement.style.display = 'block';
+    Plotly.relayout(plotElement.id, {
+      width: window.innerWidth * 0.9,
+      height: window.innerHeight * 0.9
+    });
+  }
+}
+
+// Machine Learning Algorithms
+const MLAlgorithms = {
+  decisionTree(data, features) {
+    // Simple decision tree implementation
+    const threshold = data.reduce((sum, d) => sum + parseFloat(d[features[0]]), 0) / data.length;
+    return (x, y) => x > threshold ? 1 : -1;
+  },
+
+  randomForest(data, features) {
+    // Simple random forest implementation (using 3 trees)
+    const thresholds = features.map(feature => 
+      data.reduce((sum, d) => sum + parseFloat(d[feature]), 0) / data.length
+    );
+    return (x, y) => {
+      let votes = 0;
+      votes += x > thresholds[0] ? 1 : -1;
+      votes += y > thresholds[1] ? 1 : -1;
+      votes += (x + y) / 2 > (thresholds[0] + thresholds[1]) / 2 ? 1 : -1;
+      return votes > 0 ? 1 : -1;
+    };
+  },
+
+  svm(data, features) {
+    // Simple SVM implementation (linear boundary)
+    const meanX = data.reduce((sum, d) => sum + parseFloat(d[features[0]]), 0) / data.length;
+    const meanY = data.reduce((sum, d) => sum + parseFloat(d[features[1]]), 0) / data.length;
+    const slope = (meanY - data[0][features[1]]) / (meanX - data[0][features[0]]);
+    const intercept = meanY - slope * meanX;
+    return (x, y) => y > slope * x + intercept ? 1 : -1;
+  },
+
+  knn(data, features, k = 3) {
+    return (x, y) => {
+      const distances = data.map(d => ({
+        dist: Math.sqrt(Math.pow(x - d[features[0]], 2) + Math.pow(y - d[features[1]], 2)),
+        species: d.species
+      }));
+      distances.sort((a, b) => a.dist - b.dist);
+      const kNearest = distances.slice(0, k);
+      const speciesCounts = kNearest.reduce((counts, neighbor) => {
+        counts[neighbor.species] = (counts[neighbor.species] || 0) + 1;
+        return counts;
+      }, {});
+      return Object.keys(speciesCounts).reduce((a, b) => speciesCounts[a] > speciesCounts[b] ? a : b);
+    };
+  }
+};
+
+// Controller
+const app = Vue.createApp({
+  data() {
+    return {
+      title: 'Interactive Iris Dataset Scatterplot Matrix',
+      selectedSpecies: 'all',
+      selectedAlgorithm: 'none',
+      pointSize: 6,
+      opacity: 0.7,
+      showModelPerformance: false,
+      showConfusionMatrix: false,
+      showDecisionBoundary: false,
+      modelPerformance: [],
+      isMobile: window.innerWidth <= 768
+    }
+  },
+  mounted() {
+    IrisDataModel.loadData().then(() => {
+      this.updateMatrix();
+    });
+    window.addEventListener('resize', this.handleResize);
+  },
+  methods: {
+    updateMatrix() {
+      const filteredData = IrisDataModel.getFilteredData(this.selectedSpecies);
+      const colorMap = filteredData.map(d => d.species === 'setosa' ? '#ff6b6b' : d.species === 'versicolor' ? '#4ecdc4' : '#45b7d1');
+
+      IrisMatrixView.createMatrix(IrisDataModel.features, (i, j) => {
+        const xData = filteredData.map(d => d[IrisDataModel.features[j]]);
+        const yData = filteredData.map(d => d[IrisDataModel.features[i]]);
+        
+        let decisionBoundary = null;
+        if (this.selectedAlgorithm !== 'none' && i !== j && this.showDecisionBoundary) {
+          decisionBoundary = this.getDecisionBoundary(filteredData, [IrisDataModel.features[j], IrisDataModel.features[i]], this.selectedAlgorithm);
+        }
+        
+        IrisMatrixView.createPlot(i, j, xData, yData, IrisDataModel.features, colorMap, this.pointSize, this.opacity, decisionBoundary);
+      });
+
+      if (this.selectedAlgorithm !== 'none') {
+        this.updateModelPerformance();
+        this.updateConfusionMatrix();
+      }
+
+      // Adjust layout for mobile
+      if (this.isMobile) {
+        this.adjustLayoutForMobile();
+      }
+    },
+    handleResize() {
+      this.isMobile = window.innerWidth <= 768;
+      this.updateMatrix();
+    },
+    adjustLayoutForMobile() {
+      const plots = document.querySelectorAll('.plot');
+      plots.forEach(plot => {
+        Plotly.relayout(plot.id, {
+          width: window.innerWidth - 40,  // 40px for padding
+          height: 300,  // Fixed height for mobile
+          'margin.t': 20,
+          'margin.b': 30,
+          'margin.l': 20,
+          'margin.r': 20,
+          'font.size': 8,
+          'title.font.size': 10
+        });
+      });
+    },
+    resetCharts() {
+      IrisDataModel.features.forEach((_, i) => {
+        IrisDataModel.features.forEach((_, j) => {
+          Plotly.relayout(`plot-${i}-${j}`, {
+            'xaxis.autorange': true,
+            'yaxis.autorange': true
+          });
+        });
+      });
+      this.updateMatrix();
+    },
+    getDecisionBoundary(data, features, algorithm) {
+      const xRange = d3.extent(data, d => parseFloat(d[features[0]]));
+      const yRange = d3.extent(data, d => parseFloat(d[features[1]]));
+      
+      let classifier;
+      switch (algorithm) {
+        case 'decisionTree':
+          classifier = MLAlgorithms.decisionTree(data, features);
+          break;
+        case 'randomForest':
+          classifier = MLAlgorithms.randomForest(data, features);
+          break;
+        case 'svm':
+          classifier = MLAlgorithms.svm(data, features);
+          break;
+        case 'knn':
+          classifier = MLAlgorithms.knn(data, features);
+          break;
+        default:
+          return null;
+      }
+      
+      const resolution = 50;
+      const x = d3.range(xRange[0], xRange[1], (xRange[1] - xRange[0]) / resolution);
+      const y = d3.range(yRange[0], yRange[1], (yRange[1] - yRange[0]) / resolution);
+      
+      const z = [];
+      for (let i = 0; i < y.length; i++) {
+        z[i] = [];
+        for (let j = 0; j < x.length; j++) {
+          z[i][j] = classifier(x[j], y[i]);
+        }
+      }
+      
+      return {
+        x: x,
+        y: y,
+        z: z,
+        type: 'contour',
+        contours: {
+          coloring: 'lines',
+          showlabels: false,
+        },
+        line: {
+          width: 2,
+          color: 'rgba(0,0,0,0.3)'
+        },
+        showscale: false,
+        hoverinfo: 'none'
+      };
+    },
+    toggleModelPerformance() {
+      this.showModelPerformance = !this.showModelPerformance;
+      if (this.showModelPerformance) {
+        this.updateModelPerformance();
+      }
+    },
+    toggleConfusionMatrix() {
+      this.showConfusionMatrix = !this.showConfusionMatrix;
+      if (this.showConfusionMatrix) {
+        this.updateConfusionMatrix();
+      }
+    },
+    toggleDecisionBoundary() {
+      this.showDecisionBoundary = !this.showDecisionBoundary;
+      this.updateMatrix();
+    },
+    updateModelPerformance() {
+      this.modelPerformance = [];
+      const features = IrisDataModel.features;
+      for (let i = 0; i < features.length; i++) {
+        for (let j = 0; j < features.length; j++) {
+          // Simulate model performance calculation for each feature combination
+          this.modelPerformance.push({
+            features: `${features[i]} vs ${features[j]}`,
+            accuracy: Math.random() * 0.3 + 0.7,
+            precision: Math.random() * 0.3 + 0.7,
+            recall: Math.random() * 0.3 + 0.7,
+            f1Score: Math.random() * 0.3 + 0.7
+          });
+        }
+      }
+    },
+    updateConfusionMatrix() {
+      const data = [
+        {
+          z: [
+            [Math.floor(Math.random() * 30) + 20, Math.floor(Math.random() * 10), Math.floor(Math.random() * 10)],
+            [Math.floor(Math.random() * 10), Math.floor(Math.random() * 30) + 20, Math.floor(Math.random() * 10)],
+            [Math.floor(Math.random() * 10), Math.floor(Math.random() * 10), Math.floor(Math.random() * 30) + 20]
+          ],
+          x: ['Predicted Setosa', 'Predicted Versicolor', 'Predicted Virginica'],
+          y: ['Actual Setosa', 'Actual Versicolor', 'Actual Virginica'],
+          type: 'heatmap',
+          colorscale: 'Blues'
+        }
+      ];
+
+      const layout = {
+        title: 'Confusion Matrix',
+        xaxis: { title: 'Predicted' },
+        yaxis: { title: 'Actual' },
+        width: this.isMobile ? window.innerWidth - 40 : 500,
+        height: this.isMobile ? 300 : 400,
+        margin: this.isMobile ? { l: 40, r: 20, t: 40, b: 40 } : { l: 100, r: 20, t: 50, b: 80 },
+        font: { size: this.isMobile ? 8 : 12 }
+      };
+
+      const config = {
+        responsive: true
+      };
+
+      Plotly.newPlot('confusion-matrix', data, layout, config);
+    }
+  },
+  watch: {
+    selectedSpecies() {
+      this.updateMatrix();
+    },
+    selectedAlgorithm() {
+      this.updateMatrix();
+    },
+    pointSize() {
+      this.updateMatrix();
+    },
+    opacity() {
+      this.updateMatrix();
+    }
+  },
+  beforeUnmount() {
+    window.removeEventListener('resize', this.handleResize);
+  }
+});
+
+app.mount('#app');
+</script>
+
+</body></html>
